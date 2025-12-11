@@ -1,0 +1,852 @@
+---
+title: "Project1_Stats_Final"
+author: "Christian Bright"
+updated: "2025-12-10"
+output: html_document
+---
+
+## Purpose of the Code
+This code is designed to import the final matrix outputs from the Rey-Sanchez model in MATLAB so they can be analyzed using population statistics (PDF, ECDF, percentiles, and modes). 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Consolodation
+This section brings in all the matrix data and puts it into one dataframe for CH4 and CO2 so that all the data doesn't need to be brought in every time. Run this once to create the two files and then you only need to run the following section [Data Upload] to upload the necessary data. 
+```{r}
+
+#Set your working directory first
+setwd("C:/MontezumaData/2024_Data/EC_Data/FW_FluxMaps/Footprint_Output/matrices")
+
+#Brings in DEM and converts -9999 to NAs
+DEM <- read.csv("DEM.csv", header = FALSE)
+DEM[DEM == -9999]=NA
+DEM[DEM <= 0]=NA
+
+#Brings in LC classification and converts -9999 to NAs
+LC <- read.csv("Class_Map.csv", header=FALSE)
+LC[LC == -9999]=NA
+
+#Brings in Height map and converts -9999 to NAs
+Height_map <- read.csv("Height_Map.csv", header = FALSE)
+Height_map[Height_map == -9999]=NA
+
+#Brings in Flux maps and converts -9999 to NAs
+ALL_CH4 <- read.csv("MWR-KM-2024193-0000-to-2024274-0000-both-50-80MZA.mat_CH4_ortho.csv", header = FALSE)
+ALL_CO2_day <- read.csv("MWR-KM-2024193-0000-to-2024274-0000-day-50-80MZA.mat_CO2_ortho.csv", header = FALSE)
+ALL_CO2_night <- read.csv("MWR-KM-2024193-0000-to-2024274-0000-night-50-80MZA.mat_CO2_ortho.csv", header = FALSE)
+
+ALL_CH4[ALL_CH4 == -9999] = NA
+ALL_CO2_day[ALL_CO2_day == -9999] = NA
+ALL_CO2_night[ALL_CO2_night == -9999]=NA
+
+########### PUT ALL DATA INTO A VECTOR FOMAT FOR OUTPUT ###############
+
+V_DEM <- as.vector(as.matrix(DEM))
+V_HM <- as.vector(as.matrix(Height_map))
+V_LC <- as.vector(as.matrix(LC))
+V_ALL_CH4 <- as.vector(as.matrix(ALL_CH4))
+V_ALLCO2_D<- as.vector(as.matrix(ALL_CO2_day))
+V_ALLCO2_N<- as.vector(as.matrix(ALL_CO2_night))
+
+data_CH4 <- data.frame("DEM"=V_DEM,"HM"=V_HM, "LC"=V_LC, "CH4"=V_ALL_CH4) 
+write.csv(data_CH4, file = "ALL_MatrixData_CH4.csv", row.names = FALSE, quote = FALSE)
+
+data_CO2 <- data.frame("DEM"=V_DEM,"HM"=V_HM, "LC"=V_LC, 
+                "AllCO2d"=V_ALLCO2_D, "AllCO2n"=V_ALLCO2_N)
+write.csv(data_CO2, file = "ALL_MatrixData_CO2.csv", row.names = FALSE, quote = FALSE)
+```
+
+
+
+## Data Upload
+Brings in the matrix data created above and formats it for analysis
+```{r}
+library(dplyr)
+setwd("C:/MontezumaData/2024_Data/EC_Data/FW_FluxMaps/Footprint_Output/matrices")
+
+#Brings in flux-weighted map matrices
+data_CH4 <- read.csv("ALL_MatrixData_CH4.csv")
+data_CH4$HM[data_CH4$HM < 0]= NA
+data_CO2 <- read.csv("ALL_MatrixData_CO2.csv")
+data_CO2$HM[data_CO2$HM < 0]= NA
+
+#Converts valued numbers in LC to their actual parameter name
+data_CH4$LC[data_CH4$LC==0]="NoData"
+data_CH4$LC[data_CH4$LC==1]="Phragmites"
+data_CH4$LC[data_CH4$LC==2]="Typha"
+data_CH4$LC[data_CH4$LC==3]="Water"
+data_CH4$LC[data_CH4$LC==4]="Dead"
+data_CH4$LC[data_CH4$LC==5]="Road"
+data_CH4$LC[data_CH4$LC==6]="Upland"
+data_CH4$LC[data_CH4$LC==7]="Nonliving"
+data_CH4$LC[is.na(data_CH4$LC)]="NoData"
+
+data_CO2$LC[data_CO2$LC==0]="NoData"
+data_CO2$LC[data_CO2$LC==1]="Phragmites"
+data_CO2$LC[data_CO2$LC==2]="Typha"
+data_CO2$LC[data_CO2$LC==3]="Water"
+data_CO2$LC[data_CO2$LC==4]="Dead"
+data_CO2$LC[data_CO2$LC==5]="Road"
+data_CO2$LC[data_CO2$LC==6]="Upland"
+data_CO2$LC[data_CO2$LC==7]="Nonliving"
+data_CO2$LC[is.na(data_CO2$LC)]="NoData"
+
+#puts data into vectors
+DEM <- as.vector(as.matrix(data_CH4$DEM))
+HM <- as.vector(as.matrix(data_CH4$HM))
+LC <- as.vector(as.matrix(data_CH4$LC))
+CH4 <- as.vector(as.matrix(data_CH4$CH4))
+All_CO2D <- as.vector(as.matrix(data_CO2$AllCO2d))
+All_CO2N <- as.vector(as.matrix(data_CO2$AllCO2n))
+```
+
+
+
+## Patchsum Analysis and Results
+Patchsum outputs are derived from MatLab code over the Land Cover Class map and help to tell the percent contribution of each LC class to the overall footprint. Classifications < 5% across the board were removed from analysis. 
+```{r, echo=FALSE}
+setwd("C:/MontezumaData/2024_Data/EC_Data/FW_FluxMaps/Footprint_Output/Patchsums")
+Patchsum <- read.csv("Patchsum_NIGHT.csv", header=F) #Change to fit each output
+Patchsum[Patchsum == -9999]=NA
+headers <- c("Phrag", "Cattail", "Water", "Dead", "Road", "Upland", "Nonliving")
+colnames(Patchsum) <- headers
+
+mean(Patchsum$Cattail, na.rm = T) *100   
+mean(Patchsum$Phrag, na.rm = T) *100     
+mean(Patchsum$Water, na.rm = T) *100     
+mean(Patchsum$Dead, na.rm = T) *100      
+mean(Patchsum$Road, na.rm = T)*100       
+mean(Patchsum$Upland, na.rm = T)*100     
+mean(Patchsum$Nonliving, na.rm = T)*100  
+```
+### Patchsum Results:
+CATTAL: BOTH = 30.39%;  DAY = 29.75%; NIGHT = 33.27%
+PHRAGM: BOTH =  6.26%;  DAY =  5.57%; NIGHT =  9.40%
+WATER_: BOTH = 27.86%;  DAY = 28.49%; NIGHT = 24.95%
+DEAD__: BOTH = 17.96%;  DAY = 18.14%; NIGHT = 17.16%
+ROAD__: BOTH =  0.13%;  DAY =  0.14%; NIGHT =  0.06%
+UPLAND: BOTH =  7.60%;  DAY =  8.46%; NIGHT =  3.69%
+NONLIV: BOTH =  2.37%;  DAY =  2.64%; NIGHT =  1.13%
+
+```{r}
+#Remove LC Classes that provide small footprint contributions
+library(dplyr)
+
+LC_df_CH4 <- subset(data_CH4, select = -c(HM, DEM))
+LC_dfCH4_new <- LC_df_CH4 %>%
+  filter(!LC %in% c("Nonliving", "Road", "NoData"))
+
+LC_df_CO2 <- subset(data_CO2, select = -c(HM, DEM))
+LC_dfCO2_new <- LC_df_CO2 %>%
+  filter(!LC %in% c("Nonliving", "Road", "NoData"))
+```
+
+
+## DEM PDF and ECDF
+Runs the statistics for the digital elevation model and gas fluxes.
+```{r}
+library(ggplot2)
+library(scales)
+
+##### GRAPHING FLUXES AS A PROPORTION OF BATHYMETRY ####
+
+#Create bins and legend
+data_CH4$DEM_bin <- cut(data_CH4$DEM,
+                              breaks = c(115.5, 116, 116.5, Inf),
+                              labels = c("Deeper", "Moderate", 
+                                         "Shallower"),
+                              right = FALSE)  
+                          # Use right = FALSE to make   intervals like [0,1)
+
+data_CO2$DEM_bin <- cut(data_CO2$DEM,
+                              breaks = c(115.5, 116, 116.5, Inf),
+                              labels = c("Deeper", "Moderate", 
+                                         "Shallower"),
+                              right = FALSE)  
+
+shared_scale <- scale_color_manual(
+  values = c("#66A61E","#E69F00", "#CC99FF"))
+
+## Histogram Line plot option
+p1 <- ggplot(data_CH4 %>% filter(!is.na(CH4), !is.na(DEM_bin)),
+       aes(x = CH4, color = DEM_bin)) +
+  geom_density(alpha = 0.3, adjust = 1.0, size = 0.5) +  # adjust controls smoothing
+  shared_scale +
+  ylab("Proportional Density") +
+  theme_classic()+
+  ggtitle(bquote(paste(CH[4], " (Day & Night)")))+
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+
+
+p2 <- ggplot(data_CO2 %>% filter(!is.na(AllCO2d), !is.na(DEM_bin)),
+       aes(x = AllCO2d, color = DEM_bin)) +
+  geom_density(alpha = 0.3, adjust = 1.0, size = 0.5) +  # adjust controls smoothing
+  shared_scale +
+  xlab(bquote(paste(CO[2], " Flux umol/",m^2))) +
+  theme_classic()+
+  ggtitle(bquote(paste(CO[2], " (Day)")))+
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(),
+        axis.title.y = element_blank())+
+  scale_y_continuous(labels = label_number(accuracy = 0.01))
+
+p3 <- ggplot(data_CO2 %>% filter(!is.na(AllCO2n), !is.na(DEM_bin)),
+       aes(x = AllCO2n, color = DEM_bin)) +
+  geom_density(alpha = 0.3, adjust = 1.0, size = 0.5) +  # adjust controls smoothing
+  shared_scale +
+  theme(legend.position = "none") +
+  xlab(bquote(paste(CO[2], " Flux umol/",m^2))) +
+  theme_classic()+
+  ggtitle(bquote(paste(CO[2], " (Night)")))+
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(),
+        axis.title.y = element_blank())
+
+#ECDF line graph
+ecdf_lines <- c(0.1, 0.25, 0.5, 0.75, 0.9)
+
+df_clean <- data_CH4 %>%
+  filter(!is.na(CH4), !is.na(DEM_bin))
+
+# p4 (CH4 ECDF)
+p4 <- ggplot(df_clean, aes(x = CH4, color = DEM_bin)) +
+  stat_ecdf(geom = "step", size = 0.5) +
+  shared_scale +
+  theme(legend.position = "none") +
+  ylab("Cumulative Proportion") +
+  xlab(bquote(paste(CH[4], " Flux (nmol ",m^-2, s^-1,")"))) +
+  theme_classic() +
+  geom_hline(yintercept = ecdf_lines, linetype = "dashed", color = "gray80", size = 0.3)
+
+df_clean <- data_CO2 %>%
+  filter(!is.na(AllCO2d), !is.na(DEM_bin))
+
+# p5 (CO2 Day ECDF)
+p5 <- ggplot(df_clean, aes(x = AllCO2d, color = DEM_bin)) +
+  stat_ecdf(geom = "step", size = 0.5) +
+  shared_scale +
+  theme(legend.position = "none") +
+  xlab(bquote(paste(CO[2], " Flux (umol ",m^-2, s^-1,")"))) +
+  theme_classic() +
+  geom_hline(yintercept = ecdf_lines, linetype = "dashed", color = "gray80", size = 0.3)+
+  theme(axis.title.y = element_blank())
+
+df_clean <- data_CO2 %>%
+  filter(!is.na(AllCO2n), !is.na(DEM_bin))
+
+# p6 (CO2 Night ECDF)
+p6 <- ggplot(df_clean, aes(x = AllCO2n, color = DEM_bin)) +
+  stat_ecdf(geom = "step", size = 0.5) +
+  shared_scale +
+  theme(legend.position = "none") +
+  xlab(bquote(paste(CO[2], " Flux (umol ",m^-2, s^-1,")"))) +
+  theme_classic() +
+  geom_hline(yintercept = ecdf_lines, linetype = "dashed", color = "gray80", size = 0.3)+
+  theme(axis.title.y = element_blank())
+
+#Combine graphs into one large visualization
+library(patchwork)
+combined <- (p1 + p2 + p3) / (p4 + p5 + p6) +
+     plot_layout(guides = "collect") +
+     plot_annotation(tag_levels = 'a') &
+     theme(
+         legend.position = "bottom",
+         legend.title = element_blank(),
+         legend.text = element_text(size = 11),
+         legend.key.size = unit(0.6, "lines"),
+         legend.spacing.x = unit(0.3, "cm"),
+         panel.spacing = unit(0, "lines"),
+         plot.margin = margin(1, 2, 1, 1, "pt")
+     )
+
+#Export figures to designated folder
+ setwd("C:/MontezumaData/2024_Data/EC_Data/FW_FluxMaps/Images/R_plots")
+
+  #PNG output
+ggsave(
+  filename = "DEM_plots.png",
+  plot = combined,
+  width = 18,      # full page width in centimeters (≈7.1 inches)
+  height = 12,     # adjust depending on how tall you want it
+  units = "cm",
+  dpi = 300        # high resolution for publication
+)
+
+  #PDF output
+ggsave(
+  filename = "DEM_plots.pdf",
+  plot = combined,
+  width = 18,
+  height = 12,
+  units = "cm",
+  useDingbats = FALSE
+)
+ 
+#!#!#!#!#!# CALCULATE THE PERCENTILES #!#!#!#!#!#
+percentiles_CH4 <- data_CH4 %>%
+  filter(!is.na(DEM_bin)) %>%
+  group_by(DEM_bin) %>%
+  summarise(
+    p10 = quantile(CH4, 0.10, na.rm = TRUE),
+    p25 = quantile(CH4, 0.25, na.rm = TRUE),
+    p50 = quantile(CH4, 0.50, na.rm = TRUE),
+    p75 = quantile(CH4, 0.75, na.rm = TRUE),
+    p90 = quantile(CH4, 0.90, na.rm = TRUE)
+  )
+
+percentiles_CH4
+
+percentiles_CO2_day <- data_CO2 %>%
+  filter(!is.na(AllCO2d), !is.na(DEM_bin)) %>%
+  group_by(DEM_bin) %>%
+  summarise(
+    p10 = quantile(AllCO2d, 0.10, na.rm = TRUE),
+    p25 = quantile(AllCO2d, 0.25, na.rm = TRUE),
+    p50 = quantile(AllCO2d, 0.50, na.rm = TRUE),
+    p75 = quantile(AllCO2d, 0.75, na.rm = TRUE),
+    p90 = quantile(AllCO2d, 0.90, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+percentiles_CO2_day
+
+percentiles_CO2_night <- data_CO2 %>%
+  filter(!is.na(AllCO2n), !is.na(DEM_bin)) %>%
+  group_by(DEM_bin) %>%
+  summarise(
+    p10 = quantile(AllCO2n, 0.10, na.rm = TRUE),
+    p25 = quantile(AllCO2n, 0.25, na.rm = TRUE),
+    p50 = quantile(AllCO2n, 0.50, na.rm = TRUE),
+    p75 = quantile(AllCO2n, 0.75, na.rm = TRUE),
+    p90 = quantile(AllCO2n, 0.90, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+percentiles_CO2_night
+
+#!#!#!#!#!# CALCULATE THE MODAL PULSES #!#!#!#!#!#
+##Determining the modes for each of the bins and fluxes
+
+find_density_peaks <- function(x, bw_mult = 1) {
+  # Compute bandwidth
+  bw <- bw.nrd0(x)
+
+  # Compute density with scaled bandwidth
+  d <- density(x, bw = bw * bw_mult, na.rm = TRUE)
+
+  # Identify local maxima
+  dy <- diff(d$y)
+  peaks <- which(diff(sign(dy)) == -2) + 1
+
+  # Return a tibble (required for group_modify)
+  tibble(
+    peak_value = d$x[peaks],
+    peak_height = d$y[peaks]
+  )
+}
+
+#Adjusting bw_mult will adjust the smoothing used. May be necessary to see fewer peaks (e.g. reduce noise by increasing the value)
+peaks_CH4 <- data_CH4 %>%
+  filter(!is.na(CH4), !is.na(DEM_bin)) %>%
+  group_by(DEM_bin) %>%
+  group_modify(~ find_density_peaks(.x$CH4, bw_mult = 2.5))
+
+
+peaks_CH4
+
+modes_CO2_day <- data_CO2 %>%
+  filter(!is.na(AllCO2d), !is.na(DEM_bin)) %>%
+  group_by(DEM_bin) %>%
+  group_modify(~ find_density_peaks(.x$AllCO2d, bw_mult = 2.5))
+
+modes_CO2_day
+
+modes_CO2_night <- data_CO2 %>%
+  filter(!is.na(AllCO2n), !is.na(DEM_bin)) %>%
+  group_by(DEM_bin) %>%
+  group_modify(~ find_density_peaks(.x$AllCO2n, bw_mult = 3.0))
+
+modes_CO2_night
+```
+
+
+## Height Dynamics
+Runs the statistics for plant heights and gas fluxes.
+```{r}
+library(ggplot2)
+
+##### GRAPHING FLUXES AS A PROPORTION OF BATHYMETRY ####
+
+#Change time periods as needed
+data_CH4$HM_bin <- cut(data_CH4$HM,
+                              breaks = c(0, 1, 2, Inf),
+                              labels = c("0-1 m", "1-2 m", ">2"),
+                              right = FALSE)  
+                          # Use right = FALSE to make intervals like [0,1)
+
+data_CO2$HM_bin <- cut(data_CO2$HM,
+                              breaks = c(0, 1, 2, Inf),
+                              labels = c("0-1 m", "1-2 m", ">2"),
+                              right = FALSE)
+
+shared_scale <- scale_color_manual(
+  values = c("#66A61E", "#E69F00", "#CC99FF"))
+
+
+## Proportional Density Line plot option
+p1 <- ggplot(data_CH4 %>% filter(!is.na(CH4), !is.na(HM_bin)),
+       aes(x = CH4, color = HM_bin)) +
+  geom_density(alpha = 0.3, adjust = 1.0, size = 0.5) +  # adjust controls smoothing
+  shared_scale +
+  ylab("Proportional Density") +
+  theme_classic()+
+  ggtitle(bquote(paste(CH[4], " (Day & Night)")))+
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+
+p2 <- ggplot(data_CO2 %>% filter(!is.na(AllCO2d), !is.na(HM_bin)),
+       aes(x = AllCO2d, color = HM_bin)) +
+  geom_density(alpha = 0.3, adjust = 1.0, size=0.5) +  # adjust controls smoothing
+  shared_scale +
+  theme_classic()+
+  ggtitle(bquote(paste(CO[2], " (Day)")))+
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(),
+        axis.title.y = element_blank())
+
+p3 <- ggplot(data_CO2 %>% filter(!is.na(AllCO2n), !is.na(HM_bin)),
+       aes(x = AllCO2n, color = HM_bin)) +
+  geom_density(alpha = 0.3, adjust = 1.0, size=0.5) +  # adjust controls smoothing
+  shared_scale +
+  theme_classic()+
+  ggtitle(bquote(paste(CO[2], " (Night)")))+
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+#ECDF line graph
+ecdf_lines <- c(0.1, 0.25, 0.5, 0.75, 0.9)
+
+df_clean <- data_CH4 %>%
+  filter(!is.na(CH4), !is.na(HM_bin))
+
+# p4 (CH4 ECDF)
+p4 <- ggplot(df_clean, aes(x = CH4, color = HM_bin)) +
+  stat_ecdf(geom = "step", size = 0.5) +
+  shared_scale +
+  theme(legend.position = "none") +
+  ylab("Cumulative Proportion") +
+  xlab(bquote(paste(CH[4], " Flux (nmol ",m^-2, s^-1,")"))) +
+  theme_classic() +
+  geom_hline(yintercept = ecdf_lines, linetype = "dashed", color = "gray80", size = 0.3)
+
+df_clean <- data_CO2 %>%
+  filter(!is.na(AllCO2d), !is.na(HM_bin))
+
+# p5 (CO2 Day ECDF)
+p5 <- ggplot(df_clean, aes(x = AllCO2d, color = HM_bin)) +
+  stat_ecdf(geom = "step", size = 0.5) +
+  shared_scale +
+  theme(legend.position = "none") +
+  xlab(bquote(paste(CO[2], " Flux (umol ",m^-2, s^-1,")"))) +
+  theme_classic() +
+  geom_hline(yintercept = ecdf_lines, linetype = "dashed", color = "gray80", size = 0.3)+
+  theme(axis.title.y = element_blank())
+
+df_clean <- data_CO2 %>%
+  filter(!is.na(AllCO2n), !is.na(HM_bin))
+
+# p6 (CO2 Night ECDF)
+p6 <- ggplot(df_clean, aes(x = AllCO2n, color = HM_bin)) +
+  stat_ecdf(geom = "step", size = 0.5) +
+  shared_scale +
+  theme(legend.position = "none") +
+  xlab(bquote(paste(CO[2], " Flux (umol ",m^-2, s^-1,")"))) +
+  theme_classic() +
+  geom_hline(yintercept = ecdf_lines, linetype = "dashed", color = "gray80", size = 0.3)+
+  theme(axis.title.y = element_blank())
+
+#Combine graphs into one large visualization
+library(patchwork)
+combined <- (p1 + p2 + p3) / (p4 + p5 + p6) +
+     plot_layout(guides = "collect") +
+     plot_annotation(tag_levels = 'a') &
+     theme(
+         legend.position = "bottom",
+         legend.title = element_blank(),
+         legend.text = element_text(size = 11),
+         legend.key.size = unit(0.6, "lines"),
+         legend.spacing.x = unit(0.3, "cm"),
+         panel.spacing = unit(0, "lines"),
+         plot.margin = margin(1, 2, 1, 1, "pt")
+     )
+
+#Adjust WD for plot outputs if necessary
+ setwd("C:/MontezumaData/2024_Data/EC_Data/FW_FluxMaps/Images/R_plots")
+ 
+ #Saves PNG
+ggsave(
+  filename = "HM_plots.png",
+  plot = combined,
+  width = 18,      # full page width in centimeters (≈7.1 inches)
+  height = 12,     # adjust depending on how tall you want it
+  units = "cm",
+  dpi = 300        # high resolution for publication
+)
+
+# Saves PDF:
+ggsave(
+  filename = "HM_plots.pdf",
+  plot = combined,
+  width = 18,
+  height = 12,
+  units = "cm",
+  useDingbats = FALSE
+)
+
+#Finding percentiles associated with ECDFs
+percentiles_CH4 <- data_CH4 %>%
+  filter(!is.na(HM_bin)) %>%
+  group_by(HM_bin) %>%
+  summarise(
+    p10 = quantile(CH4, 0.10, na.rm = TRUE),
+    p25 = quantile(CH4, 0.25, na.rm = TRUE),
+    p50 = quantile(CH4, 0.50, na.rm = TRUE),
+    p75 = quantile(CH4, 0.75, na.rm = TRUE),
+    p90 = quantile(CH4, 0.90, na.rm = TRUE)
+  )
+
+percentiles_CH4
+
+percentiles_CO2_day <- data_CO2 %>%
+  filter(!is.na(AllCO2d), !is.na(HM_bin)) %>%
+  group_by(HM_bin) %>%
+  summarise(
+    p10 = quantile(AllCO2d, 0.10, na.rm = TRUE),
+    p25 = quantile(AllCO2d, 0.25, na.rm = TRUE),
+    p50 = quantile(AllCO2d, 0.50, na.rm = TRUE),
+    p75 = quantile(AllCO2d, 0.75, na.rm = TRUE),
+    p90 = quantile(AllCO2d, 0.90, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+percentiles_CO2_day
+
+percentiles_CO2_night <- data_CO2 %>%
+  filter(!is.na(AllCO2n), !is.na(HM_bin)) %>%
+  group_by(HM_bin) %>%
+  summarise(
+    p10 = quantile(AllCO2n, 0.10, na.rm = TRUE),
+    p25 = quantile(AllCO2n, 0.25, na.rm = TRUE),
+    p50 = quantile(AllCO2n, 0.50, na.rm = TRUE),
+    p75 = quantile(AllCO2n, 0.75, na.rm = TRUE),
+    p90 = quantile(AllCO2n, 0.90, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+percentiles_CO2_night
+
+
+##Determining the modes for each of the bins and fluxes
+find_density_peaks <- function(x, bw_mult = 2.0) {
+  # Compute bandwidth
+  bw <- bw.nrd0(x)
+
+  # Compute density with scaled bandwidth
+  d <- density(x, bw = bw * bw_mult, na.rm = TRUE)
+
+  # Identify local maxima
+  dy <- diff(d$y)
+  peaks <- which(diff(sign(dy)) == -2) + 1
+
+  # Return a tibble (required for group_modify)
+  tibble(
+    peak_value = d$x[peaks],
+    peak_height = d$y[peaks]
+  )
+}
+
+#Changing bw_mult will adjust the smoothing used. May be necessary to see fewer peaks (e.g. reduce noise by increasing the value). Start at 2.5.
+peaks_CH4 <- data_CH4 %>%
+  filter(!is.na(CH4), !is.na(HM_bin)) %>%
+  group_by(HM_bin) %>%
+  group_modify(~ find_density_peaks(.x$CH4, bw_mult = 4))
+
+peaks_CH4
+
+modes_CO2_day <- data_CO2 %>%
+  filter(!is.na(AllCO2d), !is.na(HM_bin)) %>%
+  group_by(HM_bin) %>%
+  group_modify(~ find_density_peaks(.x$AllCO2d, bw_mult = 3))
+
+modes_CO2_day
+
+modes_CO2_night <- data_CO2 %>%
+  filter(!is.na(AllCO2n), !is.na(HM_bin)) %>%
+  group_by(HM_bin) %>%
+  group_modify(~ find_density_peaks(.x$AllCO2n, bw_mult = 3.5))
+
+modes_CO2_night
+```
+
+## Land Cover Classification Dynamics
+Runs the statistics for land cover classifications and gas fluxes.
+```{r}
+library(ggplot2)
+
+##### GRAPHING FLUXES AS A PROPORTION OF LC TYPES ####
+
+#Create uniform color scale for each graph
+shared_scale <- scale_color_manual(
+  values = c("#E69F00", "#CC99FF","#66A61E", "black"))
+
+#for water added back: , "#56B4E9"
+
+## Proportional Line plot option
+p1 <- ggplot(LC_dfCH4_new %>% filter(!is.na(CH4), !is.na(LC)),
+       aes(x = CH4, color = LC)) +
+  geom_density(alpha = 0.3, adjust = 1.0, size=0.5) +  # adjust controls smoothing
+  shared_scale +
+  ylab("Proportional Density") +
+  xlab(bquote(paste(CH[4], " Flux nmol/",m^2))) +
+  theme_classic()+
+  ggtitle(bquote(paste(CH[4], " (Day & Night)")))+
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank())
+
+p2 <- ggplot(LC_dfCO2_new %>% filter(!is.na(AllCO2d), !is.na(LC)),
+       aes(x = AllCO2d, color = LC)) +
+  geom_density(alpha = 0.3, adjust = 1.0, size=0.5) +  # adjust controls smoothing
+  shared_scale +
+  ylab("PD (Day)") +
+  xlab(bquote(paste(CO[2], " Flux umol/",m^2))) +
+  theme_classic()+
+  ggtitle(bquote(paste(CO[2], " (Day)")))+
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(),
+        axis.title.y = element_blank())
+
+p3 <- ggplot(LC_dfCO2_new %>% filter(!is.na(AllCO2n), !is.na(LC)),
+       aes(x = AllCO2n, color = LC)) +
+  geom_density(alpha = 0.3, adjust = 1.0, size=0.5) +  # adjust controls smoothing
+  shared_scale +
+  xlab(bquote(paste(CO[2], " Flux umol/",m^2))) +
+  theme_classic()+
+  ggtitle(bquote(paste(CO[2], " (Night)")))+
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(),
+        axis.title.y = element_blank())
+
+
+#ECDF line graph
+ecdf_lines <- c(0.1, 0.25, 0.5, 0.75, 0.9)
+
+df_clean <- LC_dfCH4_new %>%
+  filter(!is.na(CH4), !is.na(LC))
+
+# p4 (CH4 ECDF)
+p4 <- ggplot(df_clean, aes(x = CH4, color = LC)) +
+  stat_ecdf(geom = "step", size = 0.5) +
+  shared_scale +
+  theme(legend.position = "none") +
+  ylab("Cumulative Proportion") +
+  xlab(bquote(paste(CH[4], " Flux (nmol ",m^-2, s^-1,")"))) +
+  theme_classic() +
+  geom_hline(yintercept = ecdf_lines, linetype = "dashed", color = "gray80", size = 0.3)
+
+df_clean <- LC_dfCO2_new %>%
+  filter(!is.na(AllCO2d), !is.na(LC))
+
+# p5 (CO2 Day ECDF)
+p5 <- ggplot(df_clean, aes(x = AllCO2d, color = LC)) +
+  stat_ecdf(geom = "step", size = 0.5) +
+  shared_scale +
+  theme(legend.position = "none") +
+  xlab(bquote(paste(CO[2], " Flux (umol ",m^-2, s^-1,")"))) +
+  theme_classic() +
+  geom_hline(yintercept = ecdf_lines, linetype = "dashed", color = "gray80", size = 0.3)+
+  theme(axis.title.y = element_blank())
+
+df_clean <- LC_dfCO2_new %>%
+  filter(!is.na(AllCO2n), !is.na(LC))
+
+# p6 (CO2 Night ECDF)
+p6 <- ggplot(df_clean, aes(x = AllCO2n, color = LC)) +
+  stat_ecdf(geom = "step", size = 0.5) +
+  shared_scale +
+  theme(legend.position = "none") +
+  xlab(bquote(paste(CO[2], " Flux (umol ",m^-2, s^-1,")"))) +
+  theme_classic() +
+  geom_hline(yintercept = ecdf_lines, linetype = "dashed", color = "gray80", size = 0.3)+
+  theme(axis.title.y = element_blank())
+
+
+#Combine graphs into one large visualization
+library(patchwork)
+combined <- (p1 + p2 + p3) / (p4 + p5 + p6) +
+     plot_layout(guides = "collect") +
+     plot_annotation(tag_levels = 'a') &
+     theme(
+         legend.position = "bottom",
+         legend.title = element_blank(),
+         legend.text = element_text(size = 11),
+         legend.key.size = unit(0.6, "lines"),
+         legend.spacing.x = unit(0.3, "cm"),
+         panel.spacing = unit(0, "lines"),
+         plot.margin = margin(1, 2, 1, 1, "pt")
+     )
+
+ #Export figures
+ setwd("C:/MontezumaData/2024_Data/EC_Data/FW_FluxMaps/Images/R_plots")
+ 
+ #Saves PNG
+ggsave(
+  filename = "Class_plots_Upland.png",
+  plot = combined,
+  width = 18,      # full page width in centimeters (≈7.1 inches)
+  height = 12,     # adjust depending on how tall you want it
+  units = "cm",
+  dpi = 300        # high resolution for publication
+)
+
+#Saves PDF
+ggsave(
+  filename = "Class_plots_Upland.pdf",
+  plot = combined,
+  width = 18,
+  height = 12,
+  units = "cm",
+  useDingbats = FALSE
+)
+
+
+#Finding percentiles associated with ECDFs
+percentiles_CH4 <- LC_dfCH4_new %>%
+  group_by(LC) %>%
+  summarise(
+    p10 = quantile(CH4, 0.10, na.rm = TRUE),
+    p25 = quantile(CH4, 0.25, na.rm = TRUE),
+    p50 = quantile(CH4, 0.50, na.rm = TRUE),
+    p75 = quantile(CH4, 0.75, na.rm = TRUE),
+    p90 = quantile(CH4, 0.90, na.rm = TRUE)
+  )
+
+percentiles_CH4
+
+
+percentiles_CO2_day <- LC_dfCO2_new %>%
+  filter(!is.na(AllCO2d), !is.na(LC)) %>%
+  group_by(LC) %>%
+  summarise(
+    p10 = quantile(AllCO2d, 0.10, na.rm = TRUE),
+    p25 = quantile(AllCO2d, 0.25, na.rm = TRUE),
+    p50 = quantile(AllCO2d, 0.50, na.rm = TRUE),
+    p75 = quantile(AllCO2d, 0.75, na.rm = TRUE),
+    p90 = quantile(AllCO2d, 0.90, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+percentiles_CO2_day
+
+percentiles_CO2_night <- LC_dfCO2_new  %>%
+  filter(!is.na(AllCO2n), !is.na(LC)) %>%
+  group_by(LC) %>%
+  summarise(
+    p10 = quantile(AllCO2n, 0.10, na.rm = TRUE),
+    p25 = quantile(AllCO2n, 0.25, na.rm = TRUE),
+    p50 = quantile(AllCO2n, 0.50, na.rm = TRUE),
+    p75 = quantile(AllCO2n, 0.75, na.rm = TRUE),
+    p90 = quantile(AllCO2n, 0.90, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+percentiles_CO2_night
+
+
+##Determining the modes for each of the bins and fluxes
+find_density_peaks <- function(x, bw_mult = 1) {
+  # Compute bandwidth
+  bw <- bw.nrd0(x)
+
+  # Compute density with scaled bandwidth
+  d <- density(x, bw = bw * bw_mult, na.rm = TRUE)
+
+  # Identify local maxima
+  dy <- diff(d$y)
+  peaks <- which(diff(sign(dy)) == -2) + 1
+
+  # Return a tibble (required for group_modify)
+  tibble(
+    peak_value = d$x[peaks],
+    peak_height = d$y[peaks]
+  )
+}
+
+#Adjusting bw_mult will adjust the smoothing used. May be necessary to see fewer peaks (e.g. reduce noise by increasing the value). Start at 2.5
+peaks_CH4 <- LC_dfCH4_new %>%
+  filter(!is.na(CH4), !is.na(LC)) %>%
+  group_by(LC) %>%
+  group_modify(~ find_density_peaks(.x$CH4, bw_mult = 6))
+
+peaks_CH4
+
+modes_CO2_day <- LC_dfCO2_new %>%
+  filter(!is.na(AllCO2d), !is.na(LC)) %>%
+  group_by(LC) %>%
+  group_modify(~ find_density_peaks(.x$AllCO2d, bw_mult = 4))
+
+modes_CO2_day
+
+modes_CO2_night <- LC_dfCO2_new %>%
+  filter(!is.na(AllCO2n), !is.na(LC)) %>%
+  group_by(LC) %>%
+  group_modify(~ find_density_peaks(.x$AllCO2n, bw_mult = 6))
+
+modes_CO2_night
+```
+
+
+## Co-occurrence?
+This section was added later to determine if there was overlap between height and/or DEM with some of the LC factors that were not showing much of a relationship with gas flux. This was aimed at trying to help us understand if heterogeneity might be too great in our wetland to break things down into such small categories for LC.
+```{r}
+#Create combined df
+data_CH4$LC_combined <- ifelse(data_CH4$LC %in% c("Water", "Dead"), "Water_Dead", data_CH4$LC)
+
+#Filter relevant subset
+subset_CH4 <- data_CH4 %>%
+  filter(!is.na(CH4)) %>%
+  mutate(
+    is_combined = LC_combined == "Water_Dead",
+    is_deep = DEM_bin == "Deeper",
+    is_lowHM = HM_bin == "0-1 m"
+  )
+
+subset_CH4_clean <- subset_CH4 %>%
+  filter(!is.na(LC_combined) & !is.na(DEM_bin) & !is.na(HM_bin))
+
+subset_CH4_clean <- subset_CH4_clean %>%
+  mutate(
+    is_combined = LC_combined == "Water_Dead",
+    is_deep = DEM_bin == "Deeper",
+    is_lowHM = HM_bin == "0-1 m"
+  )
+
+#Check for co-occurrence
+
+# How many of those are in Deeper DEM?
+table(subset_CH4_clean$is_combined, subset_CH4_clean$is_deep)
+total_combined <- sum(subset_CH4_clean$is_combined & subset_CH4_clean$is_deep)
+total_combined / sum(subset_CH4_clean$is_combined)
+
+# How many are in 0-1 m HM?
+table(subset_CH4_clean$is_combined, subset_CH4_clean$is_lowHM)
+total_combined <- sum(subset_CH4_clean$is_combined & subset_CH4_clean$is_lowHM)
+total_combined / sum(subset_CH4_clean$is_combined)
+
+# How many match all three conditions?
+table(subset_CH4_clean$is_combined & subset_CH4_clean$is_deep & subset_CH4_clean$is_lowHM)
+total_combined <- sum(subset_CH4_clean$is_combined & subset_CH4_clean$is_deep)
+
+total_combined <- sum(subset_CH4_clean$is_combined)
+combined_deep_lowHM <- sum(subset_CH4_clean$is_combined & subset_CH4_clean$is_deep & subset_CH4_clean$is_lowHM)
+
+prop_overlap <- combined_deep_lowHM / total_combined
+prop_overlap
+
+```
+
