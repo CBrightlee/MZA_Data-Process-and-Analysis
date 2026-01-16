@@ -149,7 +149,7 @@ LC_dfCO2_new <- data_CO2 %>%
 ```
 
 ## Co-occurrence
-This section was used to determine if there was overlap between landscape factors and reduce it. It was further aimed at trying to help us understand where cross affiliation occurs (even somewhat naturally) with gas fluxes and spatial heterogeneity.
+This section was used to evaluate bin sizes for size similarity and determine the overlap between landscape factors. It was further aimed at helping us understand where cross affiliation occurs (even somewhat naturally) with gas fluxes and spatial heterogeneity.
 ```{r}
 library(dplyr)
 library(ggplot2)
