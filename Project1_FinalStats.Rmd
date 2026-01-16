@@ -60,6 +60,7 @@ write.csv(data_CO2, file = "ALL_MatrixData_CO2.csv", row.names = FALSE, quote = 
 
 
 
+
 ## Data Upload
 Brings in the matrix data created above and formats it for analysis
 ```{r}
@@ -104,6 +105,7 @@ All_CO2N <- as.vector(as.matrix(data_CO2$AllCO2n))
 
 
 
+
 ## Patchsum Analysis and Results
 Patchsum outputs are derived from MatLab code over the Land Cover Class map and help to tell the percent contribution of each LC class to the overall footprint. Classifications < 5% across the board were removed from analysis. 
 ```{r, echo=FALSE}
@@ -134,25 +136,27 @@ NONLIV: BOTH =  2.37%;  DAY =  2.64%; NIGHT =  1.13%
 #Remove LC Classes that provide small footprint contributions
 library(dplyr)
 
-LC_df_CH4 <- subset(data_CH4, select = -c(HM, DEM))
-LC_dfCH4_new <- LC_df_CH4 %>%
+data_CH4$LC <- trimws(data_CH4$LC)
+data_CO2$LC <- trimws(data_CO2$LC)
+
+LC_dfCH4_new <- data_CH4 %>%
+  select(-HM, -DEM) %>%       # remove HM and DEM
   filter(!LC %in% c("Nonliving", "Road", "NoData"))
 
-LC_df_CO2 <- subset(data_CO2, select = -c(HM, DEM))
-LC_dfCO2_new <- LC_df_CO2 %>%
+LC_dfCO2_new <- data_CO2 %>%
+  select(-HM, -DEM) %>%
   filter(!LC %in% c("Nonliving", "Road", "NoData"))
 ```
 
-
-## DEM PDF and ECDF
-Runs the statistics for the digital elevation model and gas fluxes.
+## Co-occurrence
+This section was used to determine if there was overlap between landscape factors and reduce it. It was further aimed at trying to help us understand where cross affiliation occurs (even somewhat naturally) with gas fluxes and spatial heterogeneity.
 ```{r}
+library(dplyr)
 library(ggplot2)
-library(scales)
 
-##### GRAPHING FLUXES AS A PROPORTION OF BATHYMETRY ####
+#Create bins for each 
 
-#Create bins and legend
+# ----- DTM BINS -----
 data_CH4$DEM_bin <- cut(data_CH4$DEM,
                               breaks = c(115.5, 116, 116.5, Inf),
                               labels = c("Deeper", "Moderate", 
@@ -164,8 +168,141 @@ data_CO2$DEM_bin <- cut(data_CO2$DEM,
                               breaks = c(115.5, 116, 116.5, Inf),
                               labels = c("Deeper", "Moderate", 
                                          "Shallower"),
-                              right = FALSE)  
+                              right = FALSE)
 
+table(data_CH4$DEM_bin)
+
+
+# ----- PLANT HEIGHT BINS -----
+
+data_CH4$HM_bin <- cut(data_CH4$HM,
+                              breaks = c(0, 0.1, 0.5, 1, Inf),
+                              labels = c("<0.1 m,", "0.1-0.5 m",
+                                        "0.5-1.0 m",  ">1 m"),
+                              right = FALSE)  
+                          # Use right = FALSE to make intervals like [0,1)
+
+data_CO2$HM_bin <- cut(data_CO2$HM,
+                              breaks = c(0, 0.1, 0.5, 1, Inf),
+                              labels = c("<0.1 m,", "0.1-0.5 m",
+                                        "0.5-1.0 m",  ">1 m"),
+                              right = FALSE)
+
+table(data_CH4$HM_bin)
+
+# Filter out NAs and remove unused classes from LC
+data_filtered <- data_CH4 %>%
+  filter(!is.na(DEM_bin), !is.na(HM_bin), !is.na(LC)) %>%
+  filter(!LC %in% c("Nonliving", "Road", "NoData"))
+
+# --- DEM vs HM ---
+df_dem_hm <- data_filtered %>%
+  group_by(DEM_bin, HM_bin) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(DEM_bin) %>%
+  mutate(prop = count / sum(count)) %>%
+  ungroup()
+
+p1<-ggplot(df_dem_hm, aes(x = HM_bin, y = DEM_bin, fill = prop)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(
+    x = "Plant Height",
+    y = "Water Depth",
+    fill = "Proportion",
+    #title = "DEM vs HM"
+  ) +
+  geom_text(aes(label = sprintf("%.2f", prop)), size = 3) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+# --- DEM vs Veg ---
+df_dem_veg <- data_filtered %>%
+  group_by(DEM_bin, LC) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(DEM_bin) %>%
+  mutate(prop = count / sum(count)) %>%
+  ungroup()
+
+p2<-ggplot(df_dem_veg, aes(x = LC, y = DEM_bin, fill = prop)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "forestgreen") +
+  labs(
+    #x = "Vegetation Type",
+    y = "Water Depth",
+    fill = "Proportion",
+    #title = "DEM vs Vegetation"
+  ) +
+  geom_text(aes(label = sprintf("%.2f", prop)), size = 3) +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.position = "none")
+
+# --- HM vs Veg ---
+df_hm_veg <- data_filtered %>%
+  group_by(HM_bin, LC) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(HM_bin) %>%
+  mutate(prop = count / sum(count)) %>%
+  ungroup()
+
+p3<-ggplot(df_hm_veg, aes(x = LC, y = HM_bin, fill = prop)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "orange") +
+  labs(
+    x = "Land Cover",
+    y = "Plant Height",
+    fill = "Proportion",
+    #title = "HM vs Vegetation"
+  ) +
+  geom_text(aes(label = sprintf("%.2f", prop)), size = 3) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+
+library(patchwork)
+# All three vertically
+combined_plot <- p1 / p2 / p3 +
+  plot_annotation(tag_levels = 'a')
+
+# Show the combined plot
+combined_plot
+
+#Export figures to designated folder
+ setwd("C:/MontezumaData/2024_Data/EC_Data/Images/R_plots")
+ 
+  #PNG output
+ggsave(
+  filename = "Cooccurrence.png",
+  plot = combined_plot,
+  width = 18,      # full page width in centimeters (≈7.1 inches)
+  height = 12,     # adjust depending on how tall you want it
+  units = "cm",
+  dpi = 300        # high resolution for publication
+)
+
+  #PDF output
+ggsave(
+  filename = "Cooccurrence.pdf",
+  plot = combined_plot,
+  width = 18,
+  height = 12,
+  units = "cm",
+  useDingbats = FALSE
+)
+```
+
+
+## DTM PDF and ECDF
+Runs the statistics for the digital elevation model and gas fluxes.
+```{r}
+library(ggplot2)
+library(scales)
+
+##### GRAPHING FLUXES AS A PROPORTION OF BATHYMETRY ####
 shared_scale <- scale_color_manual(
   values = c("#66A61E","#E69F00", "#CC99FF"))
 
@@ -259,8 +396,10 @@ combined <- (p1 + p2 + p3) / (p4 + p5 + p6) +
          plot.margin = margin(1, 2, 1, 1, "pt")
      )
 
+
+
 #Export figures to designated folder
- setwd("C:/MontezumaData/2024_Data/EC_Data/FW_FluxMaps/Images/R_plots")
+ setwd("C:/MontezumaData/2024_Data/EC_Data/Images/R_plots")
 
   #PNG output
 ggsave(
@@ -370,6 +509,7 @@ modes_CO2_night
 ```
 
 
+
 ## Height Dynamics
 Runs the statistics for plant heights and gas fluxes.
 ```{r}
@@ -377,20 +517,8 @@ library(ggplot2)
 
 ##### GRAPHING FLUXES AS A PROPORTION OF BATHYMETRY ####
 
-#Change time periods as needed
-data_CH4$HM_bin <- cut(data_CH4$HM,
-                              breaks = c(0, 1, 2, Inf),
-                              labels = c("0-1 m", "1-2 m", ">2"),
-                              right = FALSE)  
-                          # Use right = FALSE to make intervals like [0,1)
-
-data_CO2$HM_bin <- cut(data_CO2$HM,
-                              breaks = c(0, 1, 2, Inf),
-                              labels = c("0-1 m", "1-2 m", ">2"),
-                              right = FALSE)
-
 shared_scale <- scale_color_manual(
-  values = c("#66A61E", "#E69F00", "#CC99FF"))
+  values = c("#E69F00", "#CC99FF","#66A61E", "black"))
 
 
 ## Proportional Density Line plot option
@@ -479,8 +607,10 @@ combined <- (p1 + p2 + p3) / (p4 + p5 + p6) +
          plot.margin = margin(1, 2, 1, 1, "pt")
      )
 
+combined
+
 #Adjust WD for plot outputs if necessary
- setwd("C:/MontezumaData/2024_Data/EC_Data/FW_FluxMaps/Images/R_plots")
+ setwd("C:/MontezumaData/2024_Data/EC_Data/Images/R_plots")
  
  #Saves PNG
 ggsave(
@@ -568,23 +698,23 @@ find_density_peaks <- function(x, bw_mult = 2.0) {
 peaks_CH4 <- data_CH4 %>%
   filter(!is.na(CH4), !is.na(HM_bin)) %>%
   group_by(HM_bin) %>%
-  group_modify(~ find_density_peaks(.x$CH4, bw_mult = 4))
+  group_modify(~ find_density_peaks(.x$CH4, bw_mult = 2.5))
 
 peaks_CH4
 
 modes_CO2_day <- data_CO2 %>%
   filter(!is.na(AllCO2d), !is.na(HM_bin)) %>%
   group_by(HM_bin) %>%
-  group_modify(~ find_density_peaks(.x$AllCO2d, bw_mult = 3))
+  group_modify(~ find_density_peaks(.x$AllCO2d, bw_mult = 2.5))
 
 modes_CO2_day
 
 modes_CO2_night <- data_CO2 %>%
   filter(!is.na(AllCO2n), !is.na(HM_bin)) %>%
   group_by(HM_bin) %>%
-  group_modify(~ find_density_peaks(.x$AllCO2n, bw_mult = 3.5))
+  group_modify(~ find_density_peaks(.x$AllCO2n, bw_mult = 2.5))
 
-modes_CO2_night
+print(n=30, modes_CO2_night)
 ```
 
 ## Land Cover Classification Dynamics
@@ -596,7 +726,7 @@ library(ggplot2)
 
 #Create uniform color scale for each graph
 shared_scale <- scale_color_manual(
-  values = c("#E69F00", "#CC99FF","#66A61E", "black"))
+  values = c("#E69F00", "#CC99FF","#66A61E", "black", "#2C7FB8"))
 
 #for water added back: , "#56B4E9"
 
@@ -799,54 +929,3 @@ modes_CO2_night <- LC_dfCO2_new %>%
 
 modes_CO2_night
 ```
-
-
-## Co-occurrence?
-This section was added later to determine if there was overlap between height and/or DEM with some of the LC factors that were not showing much of a relationship with gas flux. This was aimed at trying to help us understand if heterogeneity might be too great in our wetland to break things down into such small categories for LC.
-```{r}
-#Create combined df
-data_CH4$LC_combined <- ifelse(data_CH4$LC %in% c("Water", "Dead"), "Water_Dead", data_CH4$LC)
-
-#Filter relevant subset
-subset_CH4 <- data_CH4 %>%
-  filter(!is.na(CH4)) %>%
-  mutate(
-    is_combined = LC_combined == "Water_Dead",
-    is_deep = DEM_bin == "Deeper",
-    is_lowHM = HM_bin == "0-1 m"
-  )
-
-subset_CH4_clean <- subset_CH4 %>%
-  filter(!is.na(LC_combined) & !is.na(DEM_bin) & !is.na(HM_bin))
-
-subset_CH4_clean <- subset_CH4_clean %>%
-  mutate(
-    is_combined = LC_combined == "Water_Dead",
-    is_deep = DEM_bin == "Deeper",
-    is_lowHM = HM_bin == "0-1 m"
-  )
-
-#Check for co-occurrence
-
-# How many of those are in Deeper DEM?
-table(subset_CH4_clean$is_combined, subset_CH4_clean$is_deep)
-total_combined <- sum(subset_CH4_clean$is_combined & subset_CH4_clean$is_deep)
-total_combined / sum(subset_CH4_clean$is_combined)
-
-# How many are in 0-1 m HM?
-table(subset_CH4_clean$is_combined, subset_CH4_clean$is_lowHM)
-total_combined <- sum(subset_CH4_clean$is_combined & subset_CH4_clean$is_lowHM)
-total_combined / sum(subset_CH4_clean$is_combined)
-
-# How many match all three conditions?
-table(subset_CH4_clean$is_combined & subset_CH4_clean$is_deep & subset_CH4_clean$is_lowHM)
-total_combined <- sum(subset_CH4_clean$is_combined & subset_CH4_clean$is_deep)
-
-total_combined <- sum(subset_CH4_clean$is_combined)
-combined_deep_lowHM <- sum(subset_CH4_clean$is_combined & subset_CH4_clean$is_deep & subset_CH4_clean$is_lowHM)
-
-prop_overlap <- combined_deep_lowHM / total_combined
-prop_overlap
-
-```
-
